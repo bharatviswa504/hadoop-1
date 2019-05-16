@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
 public class OzoneManagerDoubleBuffer {
 
   private static final Logger LOG =
-      LoggerFactory.getLogger(OzoneManagerDoubleBuffer.class.getName());
+      LoggerFactory.getLogger(OzoneManagerDoubleBuffer.class);
 
   private TransactionBuffer currentBuffer;
   private TransactionBuffer readyBuffer;

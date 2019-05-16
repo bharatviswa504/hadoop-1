@@ -478,11 +478,7 @@ message InfoBucketResponse {
 }
 
 message SetBucketPropertyRequest {
-    //TODO: See if we can merge bucketArgs and bucketInfo
     optional BucketArgs bucketArgs = 1;
-    // This will be set during startTransaction, and used to apply to OM DB
-    // during applyTransaction.
-    optional BucketInfo bucketInfo = 2;
 }
 
 message SetBucketPropertyResponse {
