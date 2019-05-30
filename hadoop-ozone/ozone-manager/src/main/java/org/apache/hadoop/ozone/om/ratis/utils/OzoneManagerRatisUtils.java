@@ -43,8 +43,7 @@ public final class OzoneManagerRatisUtils {
    * @return OMClientRequest
    * @throws IOException
    */
-  public static OMClientRequest createClientRequest(OMRequest omRequest)
-      throws IOException {
+  public static OMClientRequest createClientRequest(OMRequest omRequest) {
     Type cmdType = omRequest.getCmdType();
     switch (cmdType) {
     case CreateBucket:

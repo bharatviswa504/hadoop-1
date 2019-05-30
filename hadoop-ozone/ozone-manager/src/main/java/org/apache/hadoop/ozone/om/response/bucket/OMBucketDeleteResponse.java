@@ -58,5 +58,13 @@ public final class OMBucketDeleteResponse extends OMClientResponse {
     return bucketName;
   }
 
+  @Override
+  public void addResponseToOMDB(OMMetadataManager omMetadataManager)
+      throws IOException {
+    String dbBucketKey =
+        omMetadataManager.getBucketKey(volumeName, bucketName);
+    omMetadataManager.getBucketTable().delete(dbBucketKey);
+  }
+
 }
 

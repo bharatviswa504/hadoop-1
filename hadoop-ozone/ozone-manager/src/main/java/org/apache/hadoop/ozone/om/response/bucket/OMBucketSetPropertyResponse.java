@@ -48,4 +48,13 @@ public class OMBucketSetPropertyResponse extends OMClientResponse {
         omBucketInfo);
   }
 
+  @Override
+  public void addResponseToOMDB(OMMetadataManager omMetadataManager)
+      throws IOException {
+    String dbBucketKey =
+        omMetadataManager.getBucketKey(omBucketInfo.getVolumeName(),
+            omBucketInfo.getBucketName());
+    omMetadataManager.getBucketTable().put(dbBucketKey, omBucketInfo);
+  }
+
 }

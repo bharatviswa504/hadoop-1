@@ -54,5 +54,15 @@ public final class OMBucketCreateResponse extends OMClientResponse {
     return omBucketInfo;
   }
 
+  @Override
+  public void addResponseToOMDB(OMMetadataManager omMetadataManager)
+      throws IOException {
+    String dbBucketKey =
+        omMetadataManager.getBucketKey(omBucketInfo.getVolumeName(),
+            omBucketInfo.getBucketName());
+    omMetadataManager.getBucketTable().put(dbBucketKey, omBucketInfo);
+  }
+
+
 }
 
