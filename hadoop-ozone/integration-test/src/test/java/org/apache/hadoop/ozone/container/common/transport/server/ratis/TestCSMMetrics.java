@@ -61,10 +61,10 @@ import org.junit.Assert;
   /**
    * This class tests the metrics of ContainerStateMachine.
    */
-  public class TestCSMMetrics {
-    static final String TEST_DIR =
-        GenericTestUtils.getTestDir("dfs").getAbsolutePath()
-            + File.separator;
+public class TestCSMMetrics {
+  static final String TEST_DIR =
+      GenericTestUtils.getTestDir("dfs").getAbsolutePath()
+          + File.separator;
   @FunctionalInterface
   interface CheckedBiFunction<LEFT, RIGHT, OUT, THROWABLE extends Throwable> {
     OUT apply(LEFT left, RIGHT right) throws THROWABLE;
