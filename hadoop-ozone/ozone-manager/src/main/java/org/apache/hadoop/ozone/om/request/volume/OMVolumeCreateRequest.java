@@ -141,28 +141,17 @@ public class OMVolumeCreateRequest extends OMClientRequest
 
     IOException exception = null;
     try {
-      OmVolumeArgs dbVolumeArgs =
-          omMetadataManager.getVolumeTable().get(dbVolumeKey);
-
-      // Validation: Check if volume already exists
-      if (dbVolumeArgs != null) {
-        LOG.debug("volume:{} already exists", omVolumeArgs.getVolume());
+      // If volume does not exist create volume
+      if (!omMetadataManager.getVolumeTable().isExist(dbVolumeKey)) {
+        volumeList = omMetadataManager.getUserTable().get(dbUserKey);
+        volumeList = addVolumeToOwnerList(volumeList,
+            volume, owner, ozoneManager.getMaxUserVolumeCount());
+        createVolume(omMetadataManager, omVolumeArgs, volumeList, dbVolumeKey,
+            dbUserKey, transactionLogIndex);
+      } else {
         throw new OMException("Volume already exists",
             OMException.ResultCodes.VOLUME_ALREADY_EXISTS);
       }
-
-      volumeList = omMetadataManager.getUserTable().get(dbUserKey);
-      volumeList = addVolumeToOwnerList(volumeList,
-          volume, owner, ozoneManager.getMaxUserVolumeCount());
-
-      // Update cache: Update user and volume cache.
-      omMetadataManager.getUserTable().addCacheEntry(new CacheKey<>(dbUserKey),
-          new CacheValue<>(Optional.of(volumeList), transactionLogIndex));
-
-      omMetadataManager.getVolumeTable().addCacheEntry(
-          new CacheKey<>(dbVolumeKey),
-          new CacheValue<>(Optional.of(omVolumeArgs), transactionLogIndex));
-
     } catch (IOException ex) {
       exception = ex;
     } finally {

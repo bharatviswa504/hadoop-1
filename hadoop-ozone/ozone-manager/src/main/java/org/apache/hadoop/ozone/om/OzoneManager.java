@@ -1218,6 +1218,8 @@ public final class OzoneManager extends ServiceRuntimeInfoImpl
         .getVolumeTable()));
     metrics.setNumBuckets(metadataManager.countRowsInTable(metadataManager
         .getBucketTable()));
+    metrics.setNumS3Buckets(metadataManager.countRowsInTable(
+        metadataManager.getS3Table()));
 
     if (getMetricsStorageFile().exists()) {
       OmMetricsInfo metricsInfo = READER.readValue(getMetricsStorageFile());

@@ -40,6 +40,11 @@ public enum OMAction implements AuditAction {
   UPDATE_VOLUME,
   UPDATE_BUCKET,
   UPDATE_KEY,
+
+  // S3Bucket write actions
+  CREATE_S3_BUCKET,
+  DELETE_S3_BUCKET,
+
   // READ Actions
   CHECK_VOLUME_ACCESS,
   LIST_BUCKETS,

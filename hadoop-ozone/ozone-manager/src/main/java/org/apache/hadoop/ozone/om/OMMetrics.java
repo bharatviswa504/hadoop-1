@@ -110,10 +110,19 @@ public class OMMetrics {
   private @Metric MutableCounterLong numLookupFileFails;
   private @Metric MutableCounterLong numListStatusFails;
 
+  private @Metric MutableCounterLong numS3BucketCreates;
+  private @Metric MutableCounterLong numS3BucketDeletes;
+
+  // S3 metrics
+  private @Metric MutableCounterLong numS3BucketCreateFails;
+  private @Metric MutableCounterLong numS3BucketDeleteFails;
+
+
   // Metrics for total number of volumes, buckets and keys
 
   private @Metric MutableCounterLong numVolumes;
   private @Metric MutableCounterLong numBuckets;
+  private @Metric MutableCounterLong numS3Buckets;
 
   //TODO: This metric is an estimate and it may be inaccurate on restart if the
   // OM process was not shutdown cleanly. Key creations/deletions in the last
@@ -134,6 +143,34 @@ public class OMMetrics {
         "Ozone Manager Metrics",
         new OMMetrics());
   }
+
+  public void incNumS3BucketCreates() {
+    numBucketOps.incr();
+    numS3BucketCreates.incr();
+  }
+
+  public void incNumS3BucketCreateFails() {
+    numS3BucketCreateFails.incr();
+  }
+
+  public void incNumS3Buckets() {
+    numS3Buckets.incr();
+  }
+
+  public void decNumS3Buckets() {
+    numS3Buckets.incr();
+  }
+
+  public void incNumS3BucketDeletes() {
+    numBucketOps.incr();
+    numS3BucketDeletes.incr();
+  }
+
+  public void incNumS3BucketDeleteFails() {
+    numBucketOps.incr();
+    numS3BucketCreateFails.incr();
+  }
+
 
   public void incNumVolumes() {
     numVolumes.incr();
@@ -165,6 +202,10 @@ public class OMMetrics {
 
   public void setNumBuckets(long val) {
     this.numBuckets.incr(val);
+  }
+
+  public void setNumS3Buckets(long val) {
+    this.numS3Buckets.incr(val);
   }
 
   public void setNumKeys(long val) {
