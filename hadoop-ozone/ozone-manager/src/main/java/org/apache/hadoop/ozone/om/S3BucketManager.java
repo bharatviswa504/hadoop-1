@@ -26,7 +26,8 @@ import java.io.IOException;
  */
 public interface S3BucketManager {
   /**
-   * Creates an s3 bucket and maps it to Ozone volume/bucket.
+   * Creates an s3 bucket and maps it to Ozone volume/bucket. This should be
+   * called after acquiring s3BucketLock.
    * @param  userName - Name of the user who owns the bucket.
    * @param bucketName - S3 Bucket Name.
    * @throws  IOException in case the bucket cannot be created.
@@ -78,4 +79,9 @@ public interface S3BucketManager {
    * @throws IOException - incase of volume creation failure.
    */
   boolean createOzoneVolumeIfNeeded(String userName) throws IOException;
+
+  /**
+   * Return ozone volume name for a user.
+   */
+  String formatOzoneVolumeName(String userName);
 }

@@ -101,26 +101,18 @@ public class S3BucketManagerImpl implements S3BucketManager {
     // anonymous access to bucket where the user name is absent.
     String ozoneVolumeName = formatOzoneVolumeName(userName);
 
-    omMetadataManager.getLock().acquireS3Lock(bucketName);
-    try {
-      String bucket =
-          omMetadataManager.getS3Table().get(bucketName);
+    String bucket = omMetadataManager.getS3Table().get(bucketName);
 
-      if (bucket != null) {
-        LOG.debug("Bucket already exists. {}", bucketName);
-        throw new OMException(
-            "Unable to create S3 bucket. " + bucketName + " already exists.",
-            OMException.ResultCodes.S3_BUCKET_ALREADY_EXISTS);
-      }
-      String ozoneBucketName = bucketName;
-      createOzoneBucket(ozoneVolumeName, ozoneBucketName);
-      String finalName = String.format("%s/%s", ozoneVolumeName,
-          ozoneBucketName);
-
-      omMetadataManager.getS3Table().put(bucketName, finalName);
-    } finally {
-      omMetadataManager.getLock().releaseS3Lock(bucketName);
+    if (bucket != null) {
+      LOG.debug("Bucket already exists. {}", bucketName);
+      throw new OMException("Unable to create S3 bucket. " + bucketName + " " +
+          "already exists.", OMException.ResultCodes.S3_BUCKET_ALREADY_EXISTS);
     }
+    String ozoneBucketName = bucketName;
+    createOzoneBucket(ozoneVolumeName, ozoneBucketName);
+    String finalName = String.format("%s/%s", ozoneVolumeName, ozoneBucketName);
+
+    omMetadataManager.getS3Table().put(bucketName, finalName);
   }
 
   @Override
@@ -128,7 +120,7 @@ public class S3BucketManagerImpl implements S3BucketManager {
     Preconditions.checkArgument(
         Strings.isNotBlank(bucketName), "Bucket name cannot be null or empty");
 
-    omMetadataManager.getLock().acquireS3Lock(bucketName);
+    omMetadataManager.getLock().acquireS3BucketLock(bucketName);
     try {
       String map = omMetadataManager.getS3Table().get(bucketName);
 
@@ -142,12 +134,13 @@ public class S3BucketManagerImpl implements S3BucketManager {
     } catch(IOException ex) {
       throw ex;
     } finally {
-      omMetadataManager.getLock().releaseS3Lock(bucketName);
+      omMetadataManager.getLock().releaseS3BucketLock(bucketName);
     }
 
   }
 
-  private String formatOzoneVolumeName(String userName) {
+  @Override
+  public String formatOzoneVolumeName(String userName) {
     return String.format(OM_S3_VOLUME_PREFIX + "%s", userName);
   }
 
@@ -207,7 +200,7 @@ public class S3BucketManagerImpl implements S3BucketManager {
     Preconditions.checkArgument(s3BucketName.length() >=3 &&
         s3BucketName.length() < 64,
         "Length of the S3 Bucket is not correct.");
-    omMetadataManager.getLock().acquireS3Lock(s3BucketName);
+    omMetadataManager.getLock().acquireS3BucketLock(s3BucketName);
     try {
       String mapping = omMetadataManager.getS3Table().get(s3BucketName);
       if (mapping != null) {
@@ -216,7 +209,7 @@ public class S3BucketManagerImpl implements S3BucketManager {
       throw new OMException("No such S3 bucket.",
           OMException.ResultCodes.S3_BUCKET_NOT_FOUND);
     } finally {
-      omMetadataManager.getLock().releaseS3Lock(s3BucketName);
+      omMetadataManager.getLock().releaseS3BucketLock(s3BucketName);
     }
   }
 

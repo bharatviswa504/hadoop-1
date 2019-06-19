@@ -124,10 +124,7 @@ public class OMVolumeSetOwnerRequest extends OMClientRequest
     OmVolumeArgs omVolumeArgs = null;
     IOException exception = null;
 
-    omMetadataManager.getLock().acquireUserLock(newOwner);
     omMetadataManager.getLock().acquireVolumeLock(volume);
-
-    boolean needToreleaseOldOwnerLock = false;
     try {
       omVolumeArgs = omMetadataManager.getVolumeTable().get(dbVolumeKey);
 
@@ -140,18 +137,8 @@ public class OMVolumeSetOwnerRequest extends OMClientRequest
 
       oldOwner = omVolumeArgs.getOwnerName();
 
+      omMetadataManager.getLock().acquireMultiUserLock(newOwner, oldOwner);
 
-      // Release and reacquire lock for now it will not be a problem, as
-      // applyTransaction serializes the operation's.
-      // TODO: Revisit this logic once HDDS-1672 checks in.
-
-      // releasing volume lock, as to acquire user lock we need to release
-      // volume lock.
-      omMetadataManager.getLock().releaseVolumeLock(volume);
-      omMetadataManager.getLock().acquireUserLock(oldOwner);
-      omMetadataManager.getLock().acquireVolumeLock(volume);
-
-      needToreleaseOldOwnerLock = true;
       oldOwnerVolumeList =
           omMetadataManager.getUserTable().get(oldOwner);
 
@@ -182,11 +169,10 @@ public class OMVolumeSetOwnerRequest extends OMClientRequest
     } catch (IOException ex) {
       exception = ex;
     } finally {
-      omMetadataManager.getLock().releaseVolumeLock(volume);
-      omMetadataManager.getLock().releaseUserLock(newOwner);
-      if (needToreleaseOldOwnerLock) {
-        omMetadataManager.getLock().releaseUserLock(oldOwner);
+      if (oldOwner != null) {
+        omMetadataManager.getLock().releaseMultiUserLock(newOwner, oldOwner);
       }
+      omMetadataManager.getLock().releaseVolumeLock(volume);
     }
 
     // Performing audit logging outside of the lock.

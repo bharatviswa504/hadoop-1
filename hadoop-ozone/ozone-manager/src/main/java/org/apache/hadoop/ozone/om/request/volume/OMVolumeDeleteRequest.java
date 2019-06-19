@@ -104,37 +104,23 @@ public class OMVolumeDeleteRequest extends OMClientRequest
 
     OmVolumeArgs omVolumeArgs = null;
     String owner = null;
-
+    IOException exception = null;
+    OzoneManagerProtocolProtos.VolumeList newVolumeList = null;
     omMetadataManager.getLock().acquireVolumeLock(volume);
     try {
       owner = getVolumeInfo(omMetadataManager, volume).getOwnerName();
-    } catch (IOException ex) {
-      LOG.error("Volume deletion failed for volume:{}", volume, ex);
-      omMetrics.incNumVolumeDeleteFails();
-      auditLog(auditLogger, buildAuditMessage(OMAction.DELETE_VOLUME,
-          buildVolumeAuditMap(volume), ex, userInfo));
-      return new OMVolumeDeleteResponse(null, null, null,
-          createErrorOMResponse(omResponse, ex));
-    } finally {
-      omMetadataManager.getLock().releaseVolumeLock(volume);
-    }
 
-    // Release and reacquire lock for now it will not be a problem for now, as
-    // applyTransaction serializes the operation's.
-    // TODO: Revisit this logic once HDDS-1672 checks in.
+      // Release and reacquire lock for now it will not be a problem for now, as
+      // applyTransaction serializes the operation's.
 
-    // We cannot acquire user lock holding volume lock, so released volume
-    // lock, and acquiring user and volume lock.
+      // We cannot acquire user lock holding volume lock, so released volume
+      // lock, and acquiring user and volume lock.
 
-    omMetadataManager.getLock().acquireUserLock(owner);
-    omMetadataManager.getLock().acquireVolumeLock(volume);
+      omMetadataManager.getLock().acquireUserLock(owner);
 
-    String dbUserKey = omMetadataManager.getUserKey(owner);
-    String dbVolumeKey = omMetadataManager.getVolumeKey(volume);
+      String dbUserKey = omMetadataManager.getUserKey(owner);
+      String dbVolumeKey = omMetadataManager.getVolumeKey(volume);
 
-    IOException exception = null;
-    OzoneManagerProtocolProtos.VolumeList newVolumeList = null;
-    try {
       if (!omMetadataManager.isVolumeEmpty(volume)) {
         LOG.debug("volume:{} is not empty", volume);
         throw new OMException(OMException.ResultCodes.VOLUME_NOT_EMPTY);
@@ -146,19 +132,20 @@ public class OMVolumeDeleteRequest extends OMClientRequest
       // as well as delete the volume entry
       newVolumeList = delVolumeFromOwnerList(newVolumeList, volume, owner);
 
-      omMetadataManager.getUserTable().addCacheEntry(new CacheKey<>(dbUserKey),
+      omMetadataManager.getUserTable().addCacheEntry(
+          new CacheKey<>(dbUserKey),
           new CacheValue<>(Optional.of(newVolumeList), transactionLogIndex));
 
       omMetadataManager.getVolumeTable().addCacheEntry(
           new CacheKey<>(dbVolumeKey), new CacheValue<>(Optional.absent(),
               transactionLogIndex));
-
     } catch (IOException ex) {
       exception = ex;
-
     } finally {
+      if (owner != null) {
+        omMetadataManager.getLock().releaseUserLock(owner);
+      }
       omMetadataManager.getLock().releaseVolumeLock(volume);
-      omMetadataManager.getLock().releaseUserLock(owner);
     }
 
     // Performing audit logging outside of the lock.

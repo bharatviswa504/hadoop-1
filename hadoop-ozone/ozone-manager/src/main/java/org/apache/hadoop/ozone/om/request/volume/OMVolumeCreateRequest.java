@@ -136,8 +136,8 @@ public class OMVolumeCreateRequest extends OMClientRequest
     VolumeList volumeList = null;
 
     // acquire lock.
-    omMetadataManager.getLock().acquireUserLock(owner);
     omMetadataManager.getLock().acquireVolumeLock(volume);
+    omMetadataManager.getLock().acquireUserLock(owner);
 
     IOException exception = null;
     try {
@@ -166,8 +166,8 @@ public class OMVolumeCreateRequest extends OMClientRequest
     } catch (IOException ex) {
       exception = ex;
     } finally {
-      omMetadataManager.getLock().releaseVolumeLock(volumeInfo.getVolume());
       omMetadataManager.getLock().releaseUserLock(dbUserKey);
+      omMetadataManager.getLock().releaseVolumeLock(volumeInfo.getVolume());
     }
 
     // Performing audit logging outside of the lock.

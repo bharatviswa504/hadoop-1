@@ -28,13 +28,155 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class TestOzoneManagerLock {
 
+  public void testS3BucketLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireS3BucketLock("s3Bucket");
+    lock.releaseS3BucketLock("s3Bucket");
+    Assert.assertTrue(true);
+  }
+
+  public void testSameS3BucketLockInSameThread() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireS3BucketLock("s3Bucket");
+    lock.acquireS3BucketLock("s3Bucket");
+    lock.releaseS3BucketLock("s3Bucket");
+    lock.releaseS3BucketLock("s3Bucket");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testS3BucketParallel() throws Exception {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    AtomicBoolean gotLock = new AtomicBoolean(false);
+    lock.acquireS3BucketLock("s3Bucket");
+
+    Runnable run1 = (() -> {
+      lock.acquireS3BucketLock("s3Bucket");
+      gotLock.set(true);
+      lock.releaseS3BucketLock("s3Bucket");
+    });
+
+    Thread thread1 = new Thread(run1);
+    thread1.start();
+    // Let's give some time for the new thread to run
+    Thread.sleep(100);
+    // Since the new thread is trying to get lock on same user's, it will wait.
+    Assert.assertFalse(gotLock.get());
+
+    lock.releaseS3BucketLock("s3Bucket");
+
+    // Since we have released the lock, the new thread should have the lock
+    // now
+    // Let's give some time for the new thread to run
+    Thread.sleep(100);
+    Assert.assertTrue(gotLock.get());
+
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testS3LockAfterAcquiringVolumeLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireVolumeLock("volOne");
+    try {
+      lock.acquireS3BucketLock("s3Bucket");
+      Assert.fail();
+    } catch (RuntimeException ex) {
+      String msg =
+          "cannot acquire S3 bucket lock while holding Ozone " +
+              "Volume/Bucket/User lock(s).";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releaseVolumeLock("volOne");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testS3LockAfterAcquiringBucketLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireBucketLock("volOne", "bucketOne");
+    try {
+      lock.acquireS3BucketLock("s3Bucket");
+      Assert.fail();
+    } catch (RuntimeException ex) {
+      String msg =
+          "cannot acquire S3 bucket lock while holding Ozone " +
+              "Volume/Bucket/User lock(s).";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releaseBucketLock("volOne", "bucketOne");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testS3LockAfterAcquiringUserLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireUserLock("userOne");
+    try {
+      lock.acquireS3BucketLock("s3Bucket");
+      Assert.fail();
+    } catch (RuntimeException ex) {
+      String msg =
+          "cannot acquire S3 bucket lock while holding Ozone " +
+              "Volume/Bucket/User lock(s).";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releaseUserLock("userOne");
+    Assert.assertTrue(true);
+  }
+
+
   @Test(timeout = 1000)
   public void testDifferentUserLock() {
     OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
     lock.acquireUserLock("userOne");
-    lock.acquireUserLock("userTwo");
+    try {
+      lock.acquireUserLock("userTwo");
+      Assert.fail("testDifferentUserLock");
+    } catch (RuntimeException ex) {
+      String message = "For acquiring lock on multiple users, use " +
+          "acquireMultiLock method";
+      Assert.assertTrue(ex.getMessage().contains(message));
+    }
     lock.releaseUserLock("userOne");
-    lock.releaseUserLock("userTwo");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testMultiUserLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireMultiUserLock("ozone", "hdfs");
+    lock.releaseMultiUserLock("ozone", "hdfs");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testMultiUserLockParallel() throws Exception {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    AtomicBoolean gotLock = new AtomicBoolean(false);
+    lock.acquireMultiUserLock("hdfs", "ozone");
+
+    Runnable run1 = (() -> {
+      lock.acquireMultiUserLock("ozone", "hdfs");
+      gotLock.set(true);
+      lock.releaseMultiUserLock("ozone", "hdfs");
+    });
+
+    Thread thread1 = new Thread(run1);
+    thread1.start();
+    // Let's give some time for the new thread to run
+    Thread.sleep(100);
+    // Since the new thread is trying to get lock on same user's, it will wait.
+    Assert.assertFalse(gotLock.get());
+
+    lock.releaseMultiUserLock("hdfs", "ozone");
+
+    // Since we have released the lock, the new thread should have the lock
+    // now
+    // Let's give some time for the new thread to run
+    Thread.sleep(100);
+    Assert.assertTrue(gotLock.get());
+
     Assert.assertTrue(true);
   }
 
@@ -125,48 +267,39 @@ public class TestOzoneManagerLock {
   }
 
   @Test(timeout = 1000)
+  public void testUserLockAfterAcquiringVolumeLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireVolumeLock("volOne");
+    lock.acquireUserLock("userOne");
+    lock.releaseUserLock("userOne");
+    lock.releaseVolumeLock("volOne");
+    Assert.assertTrue(true);
+  }
+
+  @Test(timeout = 1000)
+  public void testUserLockAfterBucketLockAfterVolumeLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireVolumeLock("volOne");
+    lock.acquireBucketLock("volOne", "bucketOne");
+    lock.acquireUserLock("userOne");
+    lock.releaseUserLock("userOne");
+    lock.releaseBucketLock("volOne", "bucketOne");
+    lock.releaseVolumeLock("volOne");
+    Assert.assertTrue(true);
+  }
+
+
+  @Test
   public void testVolumeLockAfterUserLock() {
     OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
     lock.acquireUserLock("userOne");
-    lock.acquireVolumeLock("volOne");
-    lock.releaseVolumeLock("volOne");
-    lock.releaseUserLock("userOne");
-    Assert.assertTrue(true);
-  }
-
-  @Test(timeout = 1000)
-  public void testBucketLockAfterVolumeLock() {
-    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
-    lock.acquireVolumeLock("volOne");
-    lock.acquireBucketLock("volOne", "bucketOne");
-    lock.releaseBucketLock("volOne", "bucketOne");
-    lock.releaseVolumeLock("volOne");
-    Assert.assertTrue(true);
-  }
-
-  @Test(timeout = 1000)
-  public void testBucketLockAfterVolumeLockAfterUserLock() {
-    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
-    lock.acquireUserLock("userOne");
-    lock.acquireVolumeLock("volOne");
-    lock.acquireBucketLock("volOne", "bucketOne");
-    lock.releaseBucketLock("volOne", "bucketOne");
-    lock.releaseVolumeLock("volOne");
-    lock.releaseUserLock("userOne");
-    Assert.assertTrue(true);
-  }
-
-  @Test
-  public void testUserLockAfterVolumeLock() {
-    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
-    lock.acquireVolumeLock("volOne");
     try {
-      lock.acquireUserLock("userOne");
+      lock.acquireVolumeLock("volOne");
       Assert.fail();
     } catch (RuntimeException ex) {
       String msg =
-          "cannot acquire user lock while holding " +
-              "volume, bucket or S3 bucket lock(s).";
+          "cannot acquire volume lock while holding " +
+              "Bucket/User lock(s).";
       Assert.assertTrue(ex.getMessage().contains(msg));
     }
     lock.releaseVolumeLock("volOne");
@@ -182,11 +315,112 @@ public class TestOzoneManagerLock {
       Assert.fail();
     } catch (RuntimeException ex) {
       String msg =
-          "cannot acquire volume lock while holding bucket lock(s).";
+          "cannot acquire volume lock while holding Bucket/User lock(s).";
       Assert.assertTrue(ex.getMessage().contains(msg));
     }
     lock.releaseBucketLock("volOne", "bucketOne");
     Assert.assertTrue(true);
+  }
+
+  @Test(timeout = 1000)
+  public void testBucketLockAfterAcquiringVolumeLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireVolumeLock("volOne");
+    lock.acquireBucketLock("volOne", "bucketOne");
+    lock.releaseBucketLock("volOne", "bucketOne");
+    lock.releaseVolumeLock("volOne");
+    Assert.assertTrue(true);
+  }
+
+  @Test(timeout = 1000)
+  public void testBucketLockAfterAcquiringVolumeLockAfterAcquiringS3Lock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireS3BucketLock("s3Bucket");
+    lock.acquireVolumeLock("volOne");
+    lock.acquireBucketLock("volOne", "bucketOne");
+    lock.releaseBucketLock("volOne", "bucketOne");
+    lock.releaseVolumeLock("volOne");
+    Assert.assertTrue(true);
+  }
+
+  @Test(timeout = 1000)
+  public void testBucketLockAfterAcquiringUserLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireUserLock("Userone");
+    try {
+      lock.acquireBucketLock("volOne", "bucketOne");
+      Assert.fail();
+    } catch (RuntimeException ex) {
+      String msg = "cannot acquire bucket lock while holding User lock.";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releaseUserLock("Userone");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testVolumeLockAfterUserLockAfterBucketLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireBucketLock("volOne", "bucketOne");
+    lock.acquireUserLock("UserOne");
+    try {
+      lock.acquireVolumeLock("volOne");
+      Assert.fail();
+    } catch (RuntimeException ex) {
+      String msg =
+          "cannot acquire volume lock while holding Bucket/User lock(s).";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releaseBucketLock("volOne", "bucketOne");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testS3SecretLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireS3SecretLock("s3Secret");
+    lock.releaseS3SecretLock("s3Secret");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testS3SecretLockAcquireTwice() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquireS3SecretLock("s3Secret");
+    try {
+      lock.acquireS3SecretLock("s3Secret");
+      Assert.fail("testS3SecretLockAcquireTwice failed");
+    } catch (RuntimeException ex) {
+      String msg =
+          "cannot acquire S3 Secret lock while holding S3 awsAccessKey lock" +
+              "(s).";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releaseS3SecretLock("s3Secret");
+  }
+
+  @Test
+  public void testPrefixLock() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquirePrefixLock("prefix");
+    lock.releasePrefixLock("prefix");
+    Assert.assertTrue(true);
+  }
+
+  @Test
+  public void testPrefixLockAcquireTwice() {
+    OzoneManagerLock lock = new OzoneManagerLock(new OzoneConfiguration());
+    lock.acquirePrefixLock("prefix");
+    try {
+      lock.acquirePrefixLock("prefix");
+      Assert.fail("testPrefixLockAcquireTwice failed");
+    } catch (RuntimeException ex) {
+      String msg =
+          "cannot acquire prefix path lock while holding prefix path lock(s) " +
+              "for path";
+      Assert.assertTrue(ex.getMessage().contains(msg));
+    }
+    lock.releasePrefixLock("prefix");
   }
 
 
