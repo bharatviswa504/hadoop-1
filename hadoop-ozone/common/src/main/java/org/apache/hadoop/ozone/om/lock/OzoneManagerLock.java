@@ -1,14 +1,14 @@
 package org.apache.hadoop.ozone.om.lock;
 
 
-import java.util.BitSet;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.ozone.lock.LockManager;
-
 
 /**
  * Provides different locks to handle concurrency in OzoneMaster.
@@ -55,13 +55,11 @@ import org.apache.hadoop.ozone.lock.LockManager;
 public class OzoneManagerLock {
 
   private static final Logger LOG =
-      LoggerFactory.getLogger(OzoneManagerLock.class);
+      LoggerFactory.getLogger(OzoneManagerLock1.class);
 
   private final LockManager<String> manager;
-  private final ThreadLocal<BitSet> lockSet = ThreadLocal.withInitial(
-      () -> new BitSet(Resource.values().length));
-  private final ThreadLocal<Boolean> acquireMultiUserLock =
-      ThreadLocal.withInitial(() -> false);
+  private final ThreadLocal<Short> lockSet = ThreadLocal.withInitial(
+      () -> new Short((short)0));
 
 
   /**
@@ -87,37 +85,31 @@ public class OzoneManagerLock {
    * @param resource - Type of the resource.
    */
   public void acquireLock(String resourceName, Resource resource) {
-
-    // When resource type is user, check if we have acquired multi user lock.
-    if (resource == Resource.USER && acquireMultiUserLock.get()) {
-      throw new RuntimeException(
-          "Thread '" + Thread.currentThread().getName() + "' cannot acquire "
-              + "USER lock while holding MultiUser lock");
+    if (!resource.canLock(lockSet.get())) {
+      throw new RuntimeException(getErrorMessage(resource));
     } else {
-      int higherLockSetPos;
-      if (resource == Resource.S3_BUCKET || resource == Resource.VOLUME ||
-          resource == Resource.BUCKET) {
-        // For these locks we allow acquiring again from same thread. There are
-        // some use cases for file operations which need to reacquire lock. So,
-        // we check if we have acquired any higher order lock
-        higherLockSetPos = hasAcquiredLock(resource.ordinal() + 1);
-      } else {
-        // For these locks, we don't allow re-acquire lock. So, we should
-        // check if we have acquired the same resource lock and also higher order
-        // lock.
-        higherLockSetPos = hasAcquiredLock(resource.ordinal());
-      }
-
-      if (higherLockSetPos != -1) {
-        throw new RuntimeException(
-            "Thread '" + Thread.currentThread().getName() + "' cannot acquire "
-                + resource.name() + " lock while holding " +
-                Resource.values()[higherLockSetPos] + " lock");
-      }
       manager.lock(resourceName);
-      // Set the bit set
-      lockSet.get().set(resource.ordinal(), true);
+      lockSet.set(resource.setLock(lockSet.get()));
     }
+  }
+
+  private String getErrorMessage(Resource resource) {
+    return "Thread '" + Thread.currentThread().getName() + "' cannot " +
+        "acquire " + resource.name + " lock while holding " +
+        getCurrentLocks().toString() + " lock(s).";
+
+  }
+
+  private List<String> getCurrentLocks() {
+    List<String> currentLocks = new ArrayList<>();
+    int i=0;
+    short lockSetVal = lockSet.get();
+    for (Resource value : Resource.values()) {
+      if ((lockSetVal & value.setMask) == value.setMask) {
+        currentLocks.add(value.name);
+      }
+    }
+    return currentLocks;
   }
 
   /**
@@ -127,32 +119,22 @@ public class OzoneManagerLock {
    */
   public void acquireMultiUserLock(String oldUserResource,
       String newUserResource) {
-
-    // TODO: For now not checking already acquired lock on user names. Revisit
-    //  this in future if we need to.
-    int higherLockSetPos = hasAcquiredLock(Resource.USER.ordinal());
-    if (acquireMultiUserLock.get()){
-      throw new RuntimeException(
-          "Thread '" + Thread.currentThread().getName() + "' cannot acquire "
-              + "MultiUser lock while holding MultiUser lock");
-    } else if (higherLockSetPos >= Resource.USER.ordinal()) {
-      throw new RuntimeException(
-          "Thread '" + Thread.currentThread().getName() + "' cannot acquire "
-              + "MultiUser lock while holding User/higher order level lock");
+    Resource resource = Resource.USER;
+    if (!resource.canLock(lockSet.get())) {
+      throw new RuntimeException(getErrorMessage(resource));
     } else {
       int compare = newUserResource.compareTo(oldUserResource);
       if (compare < 0) {
         manager.lock(newUserResource);
         manager.lock(oldUserResource);
       } else if (compare > 0) {
-        manager.lock( oldUserResource);
-        manager.lock( newUserResource);
+        manager.lock(oldUserResource);
+        manager.lock(newUserResource);
       } else {
         // both users are equal.
-        manager.lock( oldUserResource);
+        manager.lock(oldUserResource);
       }
-      lockSet.get().set(Resource.USER.ordinal(), true);
-      acquireMultiUserLock.set(true);
+      lockSet.set(resource.setLock(lockSet.get()));
     }
   }
 
@@ -163,26 +145,19 @@ public class OzoneManagerLock {
    */
   public void releaseMultiUserLock(String oldUserResource,
       String newUserResource) {
-    if (acquireMultiUserLock.get()) {
-      int compare = newUserResource.compareTo(oldUserResource);
-      if (compare < 0) {
-        manager.unlock(newUserResource);
-        manager.unlock(oldUserResource);
-      } else if (compare > 0) {
-        manager.unlock( oldUserResource);
-        manager.unlock( newUserResource);
-      } else {
-        // both users are equal.
-        manager.unlock( oldUserResource);
-      }
-      lockSet.get().set(Resource.USER.ordinal(), false);
-      acquireMultiUserLock.set(true);
+    Resource resource = Resource.USER;
+    int compare = newUserResource.compareTo(oldUserResource);
+    if (compare < 0) {
+      manager.unlock(newUserResource);
+      manager.unlock(oldUserResource);
+    } else if (compare > 0) {
+      manager.unlock(oldUserResource);
+      manager.unlock(newUserResource);
     } else {
-      throw new RuntimeException(
-          "Thread '" + Thread.currentThread().getName() + "' cannot release "
-              + " MultiUserLock, without holding MultiUserLock");
+      // both users are equal.
+      manager.lock(oldUserResource);
     }
-
+    lockSet.set(resource.clearLock(lockSet.get()));
   }
 
 
@@ -191,22 +166,92 @@ public class OzoneManagerLock {
     // TODO: Not checking release of higher order level lock happened while
     // releasing lower order level lock, as for that we need counter for
     // locks, as some locks support acquiring lock again.
-    manager.unlock(resourceName);// Unset the bit.
-    lockSet.get().set(resource.ordinal(), false);
+    manager.unlock(resourceName);
+    // clear lock
+    lockSet.set(resource.clearLock(lockSet.get()));
 
   }
 
-  private int hasAcquiredLock(int position) {
-    return lockSet.get().nextSetBit(position);
-  }
-
+  /**
+   * Resource defined in Ozone.
+   */
   public enum Resource {
-    S3_BUCKET,
-    VOLUME,
-    BUCKET,
-    USER,
-    S3_SECRET,
-    PREFIX
+    // For S3 Bucket need to allow only for S3, that should be means only 1.
+    S3_BUCKET((byte)0,  "S3_BUCKET"), // = 1
+
+    // For volume need to allow both s3 bucket and volume. 01 + 10 = 11 (3)
+    VOLUME((byte)1,  "VOLUME"), // = 2
+
+    // For bucket we need to allow both s3 bucket, volume and bucket. Which
+    // is equal to 100 + 010 + 001 = 111 = 4 + 2 + 1 = 7
+    BUCKET((byte)2,  "BUCKET"), // = 4
+
+    // For user we need to allow s3 bucket, volume, bucket and user lock.
+    // Which is 8  4 + 2 + 1 = 15
+    USER((byte)3,  "USER"), // 15
+
+    S3_SECRET((byte)4, "S3_SECRET"), // 31
+    PREFIX((byte)5, "PREFIX"); //63
+
+    // level of the resource
+    private byte pos;
+
+    // This will tell the value till which we can allow locking.
+    private short mask;
+
+    // This value will help during setLock, and also will tell whether we can
+    // re-acquire lock or not.
+    private short setMask;
+
+    // Name of the resource.
+    private String name;
+
+    Resource(byte pos, String name) {
+      this.pos = pos;
+      for (int x = 0; x < pos + 1; x++) {
+        this.mask  += (short) Math.pow(2, pos);
+      }
+      this.setMask = (short) Math.pow(2, pos);
+      this.name = name;
+    }
+
+    boolean canLock(short lockSetVal) {
+
+      // For USER, S3_SECRET and  PREFIX we shall not allow re-acquire locks at
+      // from single thread.
+      if ((USER.setMask & lockSetVal) == USER.setMask ||
+          ((S3_SECRET.setMask & lockSetVal) == S3_SECRET.setMask) ||
+          (PREFIX.setMask & lockSetVal) == PREFIX.setMask) {
+        return false;
+      }
+
+
+      // Our mask is the summation of bits of all previous possible locks. In
+      // other words it is the largest possible value for that bit position.
+
+      // For example for Volume lock, bit position is 1, and mask is 3. Which
+      // is the largest value that can be represented with 2 bits is 3.
+      // Therefore if lockSet is larger than mask we have to return false i.e
+      // some other higher order lock has been acquired.
+
+      return lockSetVal <= mask;
+    }
+
+    short setLock(short lockSetVal) {
+      System.out.println("acquire" + (short) (lockSetVal | setMask));
+      return (short) (lockSetVal | setMask);
+    }
+
+    short clearLock(short lockSetVal) {
+      System.out.println("release" + (short) (lockSetVal & ~setMask));
+      return (short) (lockSetVal & ~setMask);
+    }
+
+    short getMask() {
+      return mask;
+    }
+
   }
 
 }
+
