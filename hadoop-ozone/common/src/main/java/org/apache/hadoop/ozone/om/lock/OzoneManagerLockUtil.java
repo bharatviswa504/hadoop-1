@@ -4,65 +4,47 @@ import static org.apache.hadoop.ozone.OzoneConsts.OM_KEY_PREFIX;
 import static org.apache.hadoop.ozone.OzoneConsts.OM_S3_PREFIX;
 import static org.apache.hadoop.ozone.OzoneConsts.OM_S3_SECRET;
 import static org.apache.hadoop.ozone.OzoneConsts.OM_USER_PREFIX;
+import static org.apache.hadoop.ozone.container.common.volume.RoundRobinVolumeChoosingPolicy.LOG;
 
 /**
  * Utility class contains helper functions required for OM lock.
  */
 public final class OzoneManagerLockUtil {
 
-  /**
-   * Given a s3BucketName return corresponding resource name to be
-   * used in lock manager to acquire/release lock.
-   * @param s3BucketName
-   */
-  public static String generateS3BucketLockName(String s3BucketName) {
-    return OM_S3_PREFIX + s3BucketName;
+
+  private OzoneManagerLockUtil() {
   }
 
-  /**
-   * Given a volumeName return corresponding resource name to be
-   * used in lock manager to acquire/release lock.
-   * @param volumeName
-   */
-  public static String generateVolumeLockName(String volumeName) {
-    return OM_KEY_PREFIX + volumeName;
-  }
 
-  /**
-   * Given volumeName and bucketName return corresponding resource name to be
-   * used in lock manager to acquire/release lock.
-   * @param volumeName
-   * @param bucketName
-   */
-  public static String generateBucketLockName(String volumeName, String bucketName) {
-    return OM_KEY_PREFIX + volumeName + OM_KEY_PREFIX + bucketName;
-  }
+  public static String generateResourceLockName(
+      OzoneManagerLock.Resource resource, String... resources) {
 
-  /**
-   * Given a userName return corresponding resource name to be
-   * used in lock manager to acquire/release lock.
-   * @param userName
-   */
-  public static String generateUserLockName(String userName) {
-    return OM_USER_PREFIX + userName;
-  }
-
-  /**
-   * Given a s3Secret return corresponding resource name to be
-   * used in lock manager to acquire/release lock.
-   * @param s3Secret
-   */
-  public static  String generateS3SecretLockName(String s3Secret) {
-    return OM_S3_SECRET + s3Secret;
-  }
-
-  /**
-   * Given a prefix path return corresponding resource name to be
-   * used in lock manager to acquire/release lock.
-   * @param prefix
-   */
-  public static  String generatePrefixLockName(String prefix) {
-    return OM_S3_PREFIX + prefix;
+    if (resources.length == 1) {
+      if (resource == OzoneManagerLock.Resource.S3_BUCKET) {
+        return OM_S3_PREFIX + resources[0];
+      } else if (resource == OzoneManagerLock.Resource.VOLUME) {
+        return OM_KEY_PREFIX + resources[0];
+      } else if (resource == OzoneManagerLock.Resource.USER) {
+        return OM_USER_PREFIX + resources[0];
+      } else if (resource == OzoneManagerLock.Resource.S3_SECRET) {
+        return OM_S3_SECRET + resources[0];
+      } else if (resource == OzoneManagerLock.Resource.PREFIX) {
+        return OM_S3_PREFIX + resources[0];
+      } else {
+        throw new IllegalArgumentException("Unidentified resource type is" +
+            " passed when Resource type is bucket");
+      }
+    } else if (resources.length == 2) {
+      if (resource == OzoneManagerLock.Resource.BUCKET) {
+        return OM_KEY_PREFIX + resources[0] + OM_KEY_PREFIX + resources[1];
+      } else {
+        throw new IllegalArgumentException("VolumeName/BucketName should be" +
+            " passed when Resource type is bucket");
+      }
+    } else {
+      throw new IllegalArgumentException("This should be called with only " +
+          "maximum 2 resource names");
+    }
   }
 
 }

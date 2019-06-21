@@ -79,7 +79,7 @@ public class OzoneManagerLock {
    * For USER, PREFIX, S3_SECRET type resource, same thread acquiring lock
    * again is not allowed.
    *
-   * Special Not for UserLock: Single thread can acquire single user lock/
+   * Special Note for UserLock: Single thread can acquire single user lock/
    * multi user lock. But not both at the same time.
    * @param resourceName - Resource name on which user want to acquire lock.
    * @param resource - Type of the resource.
@@ -155,7 +155,7 @@ public class OzoneManagerLock {
       manager.unlock(newUserResource);
     } else {
       // both users are equal.
-      manager.lock(oldUserResource);
+      manager.unlock(oldUserResource);
     }
     lockSet.set(resource.clearLock(lockSet.get()));
   }
@@ -177,26 +177,26 @@ public class OzoneManagerLock {
    */
   public enum Resource {
     // For S3 Bucket need to allow only for S3, that should be means only 1.
-    S3_BUCKET((byte)0,  "S3_BUCKET"), // = 1
+    S3_BUCKET((byte) 0, "S3_BUCKET"), // = 1
 
     // For volume need to allow both s3 bucket and volume. 01 + 10 = 11 (3)
-    VOLUME((byte)1,  "VOLUME"), // = 2
+    VOLUME((byte) 1, "VOLUME"), // = 2
 
     // For bucket we need to allow both s3 bucket, volume and bucket. Which
     // is equal to 100 + 010 + 001 = 111 = 4 + 2 + 1 = 7
-    BUCKET((byte)2,  "BUCKET"), // = 4
+    BUCKET((byte) 2, "BUCKET"), // = 4
 
     // For user we need to allow s3 bucket, volume, bucket and user lock.
     // Which is 8  4 + 2 + 1 = 15
-    USER((byte)3,  "USER"), // 15
+    USER((byte) 3, "USER"), // 15
 
-    S3_SECRET((byte)4, "S3_SECRET"), // 31
-    PREFIX((byte)5, "PREFIX"); //63
+    S3_SECRET((byte) 4, "S3_SECRET"), // 31
+    PREFIX((byte) 5, "PREFIX"); //63
 
     // level of the resource
-    private byte pos;
+    private byte lockLevel;
 
-    // This will tell the value till which we can allow locking.
+    // This will tell the value, till which we can allow locking.
     private short mask;
 
     // This value will help during setLock, and also will tell whether we can
@@ -207,21 +207,24 @@ public class OzoneManagerLock {
     private String name;
 
     Resource(byte pos, String name) {
-      this.pos = pos;
-      for (int x = 0; x < pos + 1; x++) {
-        this.mask  += (short) Math.pow(2, pos);
+      this.lockLevel = pos;
+      for (int x = 0; x < lockLevel + 1; x++) {
+        this.mask += (short) Math.pow(2, x);
       }
-      this.setMask = (short) Math.pow(2, pos);
+      this.setMask = (short) Math.pow(2, lockLevel);
       this.name = name;
     }
 
     boolean canLock(short lockSetVal) {
 
       // For USER, S3_SECRET and  PREFIX we shall not allow re-acquire locks at
-      // from single thread.
-      if ((USER.setMask & lockSetVal) == USER.setMask ||
-          ((S3_SECRET.setMask & lockSetVal) == S3_SECRET.setMask) ||
-          (PREFIX.setMask & lockSetVal) == PREFIX.setMask) {
+      // from single thread. 2nd condition is we have acquired one of these
+      // locks, but after that trying to acquire a lock with less than equal of
+      // lockLevel, we should disallow.
+      if (((USER.setMask & lockSetVal) == USER.setMask ||
+          (S3_SECRET.setMask & lockSetVal) == S3_SECRET.setMask ||
+          (PREFIX.setMask & lockSetVal) == PREFIX.setMask)
+          && setMask <= lockSetVal) {
         return false;
       }
 
@@ -237,20 +240,35 @@ public class OzoneManagerLock {
       return lockSetVal <= mask;
     }
 
+    /**
+     * Set Lock bits in lockSetVal.
+     *
+     * @param lockSetVal
+     * @return Updated value which has set lock bits.
+     */
     short setLock(short lockSetVal) {
-      System.out.println("acquire" + (short) (lockSetVal | setMask));
+      System.out.println("acquire" + name + (short) (lockSetVal | setMask));
       return (short) (lockSetVal | setMask);
     }
 
+    /**
+     * Clear lock from lockSetVal.
+     *
+     * @param lockSetVal
+     * @return Updated value which has cleared lock bits.
+     */
     short clearLock(short lockSetVal) {
-      System.out.println("release" + (short) (lockSetVal & ~setMask));
+      System.out.println("release" + name + (short) (lockSetVal & ~setMask));
       return (short) (lockSetVal & ~setMask);
+    }
+
+    String getName() {
+      return name;
     }
 
     short getMask() {
       return mask;
     }
-
   }
 
 }
