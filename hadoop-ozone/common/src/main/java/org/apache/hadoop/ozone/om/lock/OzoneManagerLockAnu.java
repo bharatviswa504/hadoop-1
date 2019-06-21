@@ -95,16 +95,12 @@ public class OzoneManagerLockAnu {
 
   private String getErrorMessage(Resource resource) {
     for (Resource value : Resource.values()) {
-      if (value.ordinal() <= resource.ordinal()) {
-        continue;
-      } else {
-        if (lockSet.get() >= value.getMask()) {
+      if (lockSet.get() >= resource.setMask) {
           return "Thread '" + Thread.currentThread().getName() + "' cannot " +
               "acquire " + resource.name + " lock while holding " + value.name +
               " lock";
         }
       }
-    }
     return null;
   }
 
@@ -235,7 +231,7 @@ public class OzoneManagerLockAnu {
     }
 
     short clearLock(short lockSetVal) {
-      System.out.println("release" + (short) (lockSetVal | setMask));
+      System.out.println("release" + (short) (lockSetVal & ~setMask));
       return (short) (lockSetVal & ~setMask);
     }
 
