@@ -17,7 +17,10 @@
 
 package org.apache.hadoop.ozone.om.ratis.utils;
 
+import java.io.IOException;
+
 import com.google.common.base.Preconditions;
+
 import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.request.bucket.OMBucketCreateRequest;
 import org.apache.hadoop.ozone.om.request.bucket.OMBucketDeleteRequest;
@@ -29,6 +32,8 @@ import org.apache.hadoop.ozone.om.request.key.OMKeyCommitRequest;
 import org.apache.hadoop.ozone.om.request.key.OMKeyCreateRequest;
 import org.apache.hadoop.ozone.om.request.key.OMKeyDeleteRequest;
 import org.apache.hadoop.ozone.om.request.key.OMKeyRenameRequest;
+import org.apache.hadoop.ozone.om.request.s3.bucket.S3BucketCreateRequest;
+import org.apache.hadoop.ozone.om.request.s3.bucket.S3BucketDeleteRequest;
 import org.apache.hadoop.ozone.om.request.volume.OMVolumeCreateRequest;
 import org.apache.hadoop.ozone.om.request.volume.OMVolumeDeleteRequest;
 import org.apache.hadoop.ozone.om.request.volume.OMVolumeSetOwnerRequest;
@@ -38,8 +43,6 @@ import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
     .OMRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.Status;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.Type;
-
-import java.io.IOException;
 
 /**
  * Utility class used by OzoneManager HA.
@@ -93,6 +96,10 @@ public final class OzoneManagerRatisUtils {
       return new OMKeyRenameRequest(omRequest);
     case CreateDirectory:
       return new OMDirectoryCreateRequest(omRequest);
+    case CreateS3Bucket:
+      return new S3BucketCreateRequest(omRequest);
+    case DeleteS3Bucket:
+      return new S3BucketDeleteRequest(omRequest);
     default:
       // TODO: will update once all request types are implemented.
       return null;
