@@ -1,36 +1,60 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.hadoop.ozone.om.request.s3.bucket;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.apache.hadoop.ozone.OzoneConsts;
-import org.apache.hadoop.ozone.audit.AuditLogger;
 import org.apache.hadoop.ozone.audit.OMAction;
 import org.apache.hadoop.ozone.om.OMMetadataManager;
 import org.apache.hadoop.ozone.om.OMMetrics;
 import org.apache.hadoop.ozone.om.OzoneManager;
 import org.apache.hadoop.ozone.om.exceptions.OMException;
-import org.apache.hadoop.ozone.om.request.OMClientRequest;
+import org.apache.hadoop.ozone.om.request.volume.OMVolumeRequest;
 import org.apache.hadoop.ozone.om.response.OMClientResponse;
-import org.apache.hadoop.ozone.om.response.s3.bucket.S3BucketCreateResponse;
 import org.apache.hadoop.ozone.om.response.s3.bucket.S3BucketDeleteResponse;
-import org.apache.hadoop.ozone.om.response.volume.OMVolumeCreateResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
     .OMRequest;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
+    .OMResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
     .S3DeleteBucketRequest;
 import org.apache.hadoop.ozone.security.acl.IAccessAuthorizer;
 import org.apache.hadoop.ozone.security.acl.OzoneObj;
 import org.apache.hadoop.utils.db.cache.CacheKey;
 import org.apache.hadoop.utils.db.cache.CacheValue;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.BUCKET_LOCK;
+import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.S3_BUCKET_LOCK;
 
-public class S3BucketDeleteRequest extends OMClientRequest {
+/**
+ * Handle Create S3Bucket request.
+ */
+public class S3BucketDeleteRequest extends OMVolumeRequest {
 
   private static final Logger LOG =
       LoggerFactory.getLogger(S3BucketDeleteRequest.class);
@@ -68,13 +92,17 @@ public class S3BucketDeleteRequest extends OMClientRequest {
 
     String s3BucketName = s3DeleteBucketRequest.getS3BucketName();
 
-    OzoneManagerProtocolProtos.OMResponse.Builder omResponse =
-        OzoneManagerProtocolProtos.OMResponse.newBuilder().setCmdType(
+    OMResponse.Builder omResponse = OMResponse.newBuilder().setCmdType(
             OzoneManagerProtocolProtos.Type.DeleteS3Bucket).setStatus(
             OzoneManagerProtocolProtos.Status.OK).setSuccess(true);
 
     OMMetrics omMetrics = ozoneManager.getMetrics();
     omMetrics.incNumS3BucketDeletes();
+    IOException exception = null;
+    boolean acquiredS3Lock = false;
+    boolean acquiredBucketLock = false;
+    String volumeName = null;
+    OMMetadataManager omMetadataManager = ozoneManager.getMetadataManager();
     try {
       // check Acl
       if (ozoneManager.getAclsEnabled()) {
@@ -82,24 +110,10 @@ public class S3BucketDeleteRequest extends OMClientRequest {
             OzoneObj.StoreType.S3, IAccessAuthorizer.ACLType.DELETE, null,
             s3BucketName, null);
       }
-    } catch (IOException ex) {
-      LOG.error("S3Bucket Deletion failed for S3Bucket:{}", s3BucketName, ex);
-      omMetrics.incNumS3BucketDeleteFails();
-      auditLog(ozoneManager.getAuditLogger(),
-          buildAuditMessage(OMAction.DELETE_S3_BUCKET,
-              buildAuditMap(s3BucketName), ex, getOmRequest().getUserInfo()));
-      return new S3BucketDeleteResponse(null, null,
-          createErrorOMResponse(omResponse, ex));
-    }
 
-    IOException exception = null;
-    OMMetadataManager omMetadataManager = ozoneManager.getMetadataManager();
+      acquiredS3Lock = omMetadataManager.getLock().acquireLock(S3_BUCKET_LOCK,
+          s3BucketName);
 
-    omMetadataManager.getLock().acquireS3Lock(s3BucketName);
-
-    boolean needToReleaseLock = false;
-    String volumeName = null;
-    try {
       String s3Mapping = omMetadataManager.getS3Table().get(s3BucketName);
 
       if (s3Mapping == null) {
@@ -108,8 +122,9 @@ public class S3BucketDeleteRequest extends OMClientRequest {
       } else {
         volumeName = getOzoneVolumeName(s3Mapping);
 
-        omMetadataManager.getLock().acquireBucketLock(volumeName, s3BucketName);
-        needToReleaseLock = true;
+        acquiredBucketLock =
+            omMetadataManager.getLock().acquireLock(BUCKET_LOCK, volumeName,
+                s3BucketName);
 
         String bucketKey = omMetadataManager.getBucketKey(volumeName,
             s3BucketName);
@@ -125,10 +140,13 @@ public class S3BucketDeleteRequest extends OMClientRequest {
     } catch (IOException ex) {
       exception = ex;
     } finally {
-      if (needToReleaseLock) {
-        omMetadataManager.getLock().releaseBucketLock(volumeName, s3BucketName);
+      if (acquiredBucketLock) {
+        omMetadataManager.getLock().releaseLock(BUCKET_LOCK, volumeName,
+            s3BucketName);
       }
-      omMetadataManager.getLock().releaseS3Lock(s3BucketName);
+      if (acquiredS3Lock) {
+        omMetadataManager.getLock().releaseLock(S3_BUCKET_LOCK, s3BucketName);
+      }
     }
 
     // Performing audit logging outside of the lock.
@@ -146,7 +164,8 @@ public class S3BucketDeleteRequest extends OMClientRequest {
       return new S3BucketDeleteResponse(s3BucketName, volumeName,
           omResponse.build());
     } else {
-      LOG.error("S3Bucket {} successfully deleted", s3BucketName, exception);
+      LOG.error("S3Bucket Deletion failed for S3Bucket:{}", s3BucketName,
+          exception);
       omMetrics.incNumS3BucketDeleteFails();
       return new S3BucketDeleteResponse(null, null,
           createErrorOMResponse(omResponse, exception));

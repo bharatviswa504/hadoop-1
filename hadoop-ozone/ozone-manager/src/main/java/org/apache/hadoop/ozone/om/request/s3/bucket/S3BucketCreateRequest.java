@@ -1,3 +1,21 @@
+/**
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.hadoop.ozone.om.request.s3.bucket;
 
 import com.google.common.base.Optional;
@@ -11,7 +29,6 @@ import org.apache.hadoop.ozone.om.OzoneManager;
 import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.helpers.OmBucketInfo;
 import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
-import org.apache.hadoop.ozone.om.request.OMClientRequest;
 import org.apache.hadoop.ozone.om.request.volume.OMVolumeRequest;
 import org.apache.hadoop.ozone.om.response.OMClientResponse;
 import org.apache.hadoop.ozone.om.response.bucket.OMBucketCreateResponse;
@@ -20,6 +37,8 @@ import org.apache.hadoop.ozone.om.response.volume.OMVolumeCreateResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
     .OMRequest;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
+    .OMResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
     .S3CreateBucketRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
@@ -39,12 +58,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.apache.hadoop.ozone.OzoneConsts.OM_S3_VOLUME_PREFIX;
+import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.BUCKET_LOCK;
+import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.S3_BUCKET_LOCK;
+import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.USER_LOCK;
+import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.VOLUME_LOCK;
 
 /**
  * Handles S3 Bucket create request.
  */
-public class S3BucketCreateRequest extends OMClientRequest
-    implements OMVolumeRequest {
+public class S3BucketCreateRequest extends OMVolumeRequest {
 
   private static final String S3_ADMIN_NAME = "OzoneS3Manager";
 
@@ -93,9 +115,7 @@ public class S3BucketCreateRequest extends OMClientRequest
     String userName = s3CreateBucketRequest.getUserName();
     String s3BucketName = s3CreateBucketRequest.getS3Bucketname();
 
-
-    OzoneManagerProtocolProtos.OMResponse.Builder omResponse =
-        OzoneManagerProtocolProtos.OMResponse.newBuilder().setCmdType(
+    OMResponse.Builder omResponse = OMResponse.newBuilder().setCmdType(
             OzoneManagerProtocolProtos.Type.CreateS3Bucket).setStatus(
             OzoneManagerProtocolProtos.Status.OK).setSuccess(true);
 
@@ -113,33 +133,7 @@ public class S3BucketCreateRequest extends OMClientRequest
     // ozoneVolume/ozoneBucket and add it to s3 mapping table. If
     // s3BucketName exists in mapping table, bucket already exist or we go
     // ahead and create a bucket.
-
-    try {
-      // check Acl
-      if (ozoneManager.getAclsEnabled()) {
-        checkAcls(ozoneManager, OzoneObj.ResourceType.BUCKET,
-            OzoneObj.StoreType.S3, IAccessAuthorizer.ACLType.CREATE, null,
-            s3BucketName, null);
-      }
-    } catch (IOException ex) {
-      LOG.error("S3Bucket creation failed for S3Bucket:{}", s3BucketName, ex);
-      omMetrics.incNumS3BucketCreateFails();
-      auditLog(ozoneManager.getAuditLogger(),
-          buildAuditMessage(OMAction.CREATE_S3_BUCKET,
-              buildAuditMap(userName, s3BucketName), ex,
-              getOmRequest().getUserInfo()));
-      return new S3BucketCreateResponse(null, null, null, null,
-          createErrorOMResponse(omResponse, ex));
-    }
-
     OMMetadataManager omMetadataManager = ozoneManager.getMetadataManager();
-
-    String volumeName = formatOzoneVolumeName(userName);
-    String volumeKey = omMetadataManager.getVolumeKey(volumeName);
-    String bucketKey = omMetadataManager.getBucketKey(volumeName, s3BucketName);
-
-    omMetadataManager.getLock().acquireS3Lock(s3BucketName);
-
     IOException exception = null;
     VolumeList volumeList = null;
     OmVolumeArgs omVolumeArgs = null;
@@ -147,20 +141,33 @@ public class S3BucketCreateRequest extends OMClientRequest
 
     boolean volumeCreated = false;
     boolean bucketCreated = false;
+    boolean acquiredVolumeLock = false;
+    boolean acquiredUserLock = false;
+    String volumeName = formatOzoneVolumeName(userName);
     try {
+      // check Acl
+      if (ozoneManager.getAclsEnabled()) {
+        checkAcls(ozoneManager, OzoneObj.ResourceType.BUCKET,
+            OzoneObj.StoreType.S3, IAccessAuthorizer.ACLType.CREATE, null,
+            s3BucketName, null);
+      }
+
+      omMetadataManager.getLock().acquireLock(S3_BUCKET_LOCK, s3BucketName);
+
       // First check if this s3Bucket exists
       if (omMetadataManager.getS3Table().isExist(s3BucketName)) {
         throw new OMException("S3Bucket " + s3BucketName + " already exists",
             OMException.ResultCodes.S3_BUCKET_ALREADY_EXISTS);
       }
 
-      omMetadataManager.getLock().acquireUserLock(userName);
-      omMetadataManager.getLock().acquireVolumeLock(volumeName);
-
-      boolean needToReleaseLock = true;
       try {
+        acquiredVolumeLock =
+            omMetadataManager.getLock().acquireLock(VOLUME_LOCK, volumeName);
+        acquiredUserLock = omMetadataManager.getLock().acquireLock(USER_LOCK,
+            userName);
         // Check if volume exists, if it does not exist create
         // ozone volume.
+        String volumeKey = omMetadataManager.getVolumeKey(volumeName);
         if (!omMetadataManager.getVolumeTable().isExist(volumeKey)) {
           omVolumeArgs = createOmVolumeArgs(volumeName, userName,
               s3CreateBucketRequest.getS3CreateVolumeInfo()
@@ -174,31 +181,36 @@ public class S3BucketCreateRequest extends OMClientRequest
           volumeCreated = true;
         }
       } finally {
-        if (needToReleaseLock) {
-          omMetadataManager.getLock().releaseVolumeLock(volumeName);
-          omMetadataManager.getLock().releaseUserLock(userName);
-          needToReleaseLock = false;
+        if (acquiredUserLock) {
+          omMetadataManager.getLock().releaseLock(USER_LOCK, userName);
+        }
+        if (acquiredVolumeLock) {
+          omMetadataManager.getLock().releaseLock(VOLUME_LOCK, volumeName);
         }
       }
 
       // check if ozone bucket exists, if it does not exist create ozone
       // bucket
-      omMetadataManager.getLock().acquireBucketLock(volumeName, s3BucketName);
+      boolean acquireBucketLock = false;
       try {
-        needToReleaseLock = true;
+        acquireBucketLock =
+            omMetadataManager.getLock().acquireLock(BUCKET_LOCK, volumeName,
+                s3BucketName);
+        String bucketKey = omMetadataManager.getBucketKey(volumeName,
+            s3BucketName);
         if (!omMetadataManager.getBucketTable().isExist(bucketKey)) {
           omBucketInfo = createOmBucketInfo(volumeName, s3BucketName,
               s3CreateBucketRequest.getS3CreateVolumeInfo()
                   .getCreationTime());
-          // Add to cache.
+          // Add to bucket table cache.
           omMetadataManager.getBucketTable().addCacheEntry(
               new CacheKey<>(bucketKey),
               new CacheValue<>(Optional.of(omBucketInfo), transactionLogIndex));
           bucketCreated = true;
         }
       } finally {
-        if (needToReleaseLock) {
-          omMetadataManager.getLock().releaseBucketLock(volumeName,
+        if (acquireBucketLock) {
+          omMetadataManager.getLock().releaseLock(BUCKET_LOCK, volumeName,
               s3BucketName);
         }
       }
@@ -211,7 +223,7 @@ public class S3BucketCreateRequest extends OMClientRequest
     } catch (IOException ex) {
       exception = ex;
     } finally {
-      omMetadataManager.getLock().releaseS3Lock(s3BucketName);
+      omMetadataManager.getLock().releaseLock(S3_BUCKET_LOCK, s3BucketName);
     }
 
     // Performing audit logging outside of the lock.
@@ -242,7 +254,7 @@ public class S3BucketCreateRequest extends OMClientRequest
           formatS3MappingName(volumeName, s3BucketName), omResponse.build());
     } else {
       LOG.error("S3Bucket Creation Failed for userName: {}, s3BucketName {}, " +
-              "VolumeName {}", userName, s3BucketName, volumeName);
+          "VolumeName {}", userName, s3BucketName, volumeName);
       omMetrics.incNumS3BucketCreateFails();
       return new S3BucketCreateResponse(null, null, null, null,
           createErrorOMResponse(omResponse, exception));

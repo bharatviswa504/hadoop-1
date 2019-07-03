@@ -55,8 +55,7 @@ import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.USER_LOC
 /**
  * Handles volume delete request.
  */
-public class OMVolumeDeleteRequest extends OMClientRequest
-    implements OMVolumeRequest {
+public class OMVolumeDeleteRequest extends OMVolumeRequest {
 
   private static final Logger LOG =
       LoggerFactory.getLogger(OMVolumeDeleteRequest.class);

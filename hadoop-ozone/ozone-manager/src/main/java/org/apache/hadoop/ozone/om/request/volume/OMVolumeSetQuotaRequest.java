@@ -58,7 +58,7 @@ import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.VOLUME_L
 /**
  * Handles set Quota request for volume.
  */
-public class OMVolumeSetQuotaRequest extends OMClientRequest {
+public class OMVolumeSetQuotaRequest extends OMVolumeRequest {
   private static final Logger LOG =
       LoggerFactory.getLogger(OMVolumeSetQuotaRequest.class);
 

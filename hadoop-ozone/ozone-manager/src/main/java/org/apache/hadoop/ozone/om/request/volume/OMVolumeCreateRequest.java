@@ -57,8 +57,7 @@ import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.USER_LOC
 /**
  * Handles volume create request.
  */
-public class OMVolumeCreateRequest extends OMClientRequest
-    implements OMVolumeRequest {
+public class OMVolumeCreateRequest extends OMVolumeRequest {
   private static final Logger LOG =
       LoggerFactory.getLogger(OMVolumeCreateRequest.class);
 

@@ -22,6 +22,9 @@ import com.google.common.base.Optional;
 import org.apache.hadoop.ozone.om.OMMetadataManager;
 import org.apache.hadoop.ozone.om.exceptions.OMException;
 import org.apache.hadoop.ozone.om.helpers.OmVolumeArgs;
+import org.apache.hadoop.ozone.om.request.OMClientRequest;
+import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
+    .OMRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos
     .VolumeList;
 import org.apache.hadoop.utils.db.cache.CacheKey;
@@ -34,7 +37,11 @@ import java.util.List;
 /**
  * Defines common methods required for volume requests.
  */
-public interface OMVolumeRequest {
+public abstract class OMVolumeRequest extends OMClientRequest {
+
+  public OMVolumeRequest(OMRequest omRequest) {
+    super(omRequest);
+  }
 
   /**
    * Delete volume from user volume list. This method should be called after
@@ -45,8 +52,8 @@ public interface OMVolumeRequest {
    * @return VolumeList - updated volume list for the user.
    * @throws IOException
    */
-  default VolumeList delVolumeFromOwnerList(VolumeList volumeList,
-      String volume, String owner) throws IOException {
+   protected VolumeList delVolumeFromOwnerList(VolumeList volumeList,
+       String volume, String owner) throws IOException {
 
     List<String> prevVolList = new ArrayList<>();
 
@@ -77,7 +84,7 @@ public interface OMVolumeRequest {
    * @throws OMException - if user has volumes greater than
    * maxUserVolumeCount, an exception is thrown.
    */
-  default VolumeList addVolumeToOwnerList(
+  protected VolumeList addVolumeToOwnerList(
       VolumeList volumeList, String volume, String owner,
       long maxUserVolumeCount) throws IOException {
 
@@ -112,7 +119,7 @@ public interface OMVolumeRequest {
    * @param transactionLogIndex
    * @throws IOException
    */
-  default void createVolume(final OMMetadataManager omMetadataManager,
+  protected void createVolume(final OMMetadataManager omMetadataManager,
       OmVolumeArgs omVolumeArgs, VolumeList volumeList, String dbVolumeKey,
       String dbUserKey, long transactionLogIndex) {
     // Update cache: Update user and volume cache.

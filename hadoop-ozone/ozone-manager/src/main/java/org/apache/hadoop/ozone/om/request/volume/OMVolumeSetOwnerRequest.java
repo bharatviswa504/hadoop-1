@@ -58,8 +58,7 @@ import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.VOLUME_L
 /**
  * Handle set owner request for volume.
  */
-public class OMVolumeSetOwnerRequest extends OMClientRequest
-    implements OMVolumeRequest {
+public class OMVolumeSetOwnerRequest extends OMVolumeRequest {
   private static final Logger LOG =
       LoggerFactory.getLogger(OMVolumeSetOwnerRequest.class);
 
