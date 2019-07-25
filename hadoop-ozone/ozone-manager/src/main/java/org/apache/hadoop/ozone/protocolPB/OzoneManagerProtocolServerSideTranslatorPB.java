@@ -132,7 +132,8 @@ public class OzoneManagerProtocolServerSideTranslatorPB implements
             omClientRequest =
                 OzoneManagerRatisUtils.createClientRequest(request);
             omClientResponse =
-                omClientRequest.validateAndUpdateCache(ozoneManager, index);
+                omClientRequest.validateAndUpdateCache(ozoneManager, index,
+                    ozoneManagerDoubleBuffer::add);
           } else {
             return submitRequestDirectlyToOM(request);
           }
