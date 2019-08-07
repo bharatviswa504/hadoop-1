@@ -277,7 +277,7 @@ public class PrefixManagerImpl implements PrefixManager {
    * Helper method to validate ozone object.
    * @param obj
    * */
-  private void validateOzoneObj(OzoneObj obj) throws OMException {
+  public void validateOzoneObj(OzoneObj obj) throws OMException {
     Objects.requireNonNull(obj);
 
     if (!obj.getResourceType().equals(PREFIX)) {
