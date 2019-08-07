@@ -20,7 +20,6 @@ package org.apache.hadoop.ozone.om.request.key.acl.prefix;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.function.BiFunction;
 
 import com.google.common.base.Optional;
 import org.apache.hadoop.ozone.OzoneAcl;
@@ -29,24 +28,18 @@ import org.apache.hadoop.ozone.om.OMMetrics;
 import org.apache.hadoop.ozone.om.OzoneManager;
 import org.apache.hadoop.ozone.om.PrefixManagerImpl;
 import org.apache.hadoop.ozone.om.PrefixManagerImpl.OMPrefixAclOpResult;
-import org.apache.hadoop.ozone.om.exceptions.OMException;
-import org.apache.hadoop.ozone.om.helpers.OmKeyInfo;
 import org.apache.hadoop.ozone.om.helpers.OmPrefixInfo;
 import org.apache.hadoop.ozone.om.ratis.utils.OzoneManagerDoubleBufferHelper;
 import org.apache.hadoop.ozone.om.request.OMClientRequest;
-import org.apache.hadoop.ozone.om.response.key.acl.OMKeyAclResponse;
-import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OzoneAclInfo;
-import org.apache.hadoop.ozone.om.request.util.ObjectParser;
 import org.apache.hadoop.ozone.om.response.OMClientResponse;
-import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OzoneObj.ObjectType;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMRequest;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos.OMResponse;
 import org.apache.hadoop.ozone.security.acl.IAccessAuthorizer;
 import org.apache.hadoop.ozone.security.acl.OzoneObj;
+import org.apache.hadoop.ozone.util.QuadFunction;
 import org.apache.hadoop.utils.db.cache.CacheKey;
 import org.apache.hadoop.utils.db.cache.CacheValue;
 
-import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.BUCKET_LOCK;
 import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.PREFIX_LOCK;
 
 /**
@@ -54,11 +47,12 @@ import static org.apache.hadoop.ozone.om.lock.OzoneManagerLock.Resource.PREFIX_L
  */
 public abstract class OMPrefixAclRequest extends OMClientRequest {
 
-  private BiFunction<List<OzoneAclInfo>, OmKeyInfo, OMPrefixAclOpResult>
-      omPrefixAclOp;
+  private QuadFunction<OzoneObj, List<OzoneAcl>, OmPrefixInfo,
+      PrefixManagerImpl, OMPrefixAclOpResult, IOException> omPrefixAclOp;
 
   public OMPrefixAclRequest(OMRequest omRequest,
-      BiFunction<List<OzoneAclInfo>, OmKeyInfo, OMPrefixAclOpResult> aclOp) {
+      QuadFunction<OzoneObj, List<OzoneAcl>, OmPrefixInfo, PrefixManagerImpl,
+                OMPrefixAclOpResult, IOException> aclOp) {
     super(omRequest);
     omPrefixAclOp = aclOp;
   }
@@ -82,13 +76,12 @@ public abstract class OMPrefixAclRequest extends OMClientRequest {
     String volume = null;
     String bucket = null;
     String key = null;
-    OMPrefixAclOpResult operationResult;
+    OMPrefixAclOpResult operationResult = null;
+    boolean result = false;
 
     PrefixManagerImpl prefixManager =
         (PrefixManagerImpl) ozoneManager.getPrefixManager();
     try {
-      prefixManager.validateOzoneObj(getOzoneObj());
-
       String prefixPath = getOzoneObj().getPath();
 
       // check Acl
@@ -103,16 +96,39 @@ public abstract class OMPrefixAclRequest extends OMClientRequest {
 
       omPrefixInfo = omMetadataManager.getPrefixTable().get(prefixPath);
 
-      cf = omPrefixAclOp.apply(ozoneAcls, omKeyInfo);
-
-      if (operationResult) {
-        // update cache.
-        omMetadataManager.getKeyTable().addCacheEntry(
-            new CacheKey<>(dbKey),
-            new CacheValue<>(Optional.of(omKeyInfo), transactionLogIndex));
+      try {
+        operationResult = omPrefixAclOp.apply(getOzoneObj(), ozoneAcls,
+            omPrefixInfo, prefixManager);
+      } catch (IOException ex) {
+        // In HA case this will never happen.
+        // As in add/remove/setAcl method we have logic to update database,
+        // that can throw exception. But in HA case we shall not update DB.
+        // The code in prefixManagerImpl is being done, because update
+        // in-memory should be done after DB update for Non-HA code path.
+        operationResult = new OMPrefixAclOpResult(null, false);
       }
 
-      omClientResponse = onSuccess(omResponse, omKeyInfo, operationResult);
+      if (operationResult.isOperationsResult()) {
+        // As for remove acl list, for a prefix if after removing acl from
+        // the existing acl list, if list size becomes zero, delete the
+        // prefix from prefix table.
+        if (getOmRequest().hasRemoveAclRequest() &&
+            operationResult.getOmPrefixInfo().getAcls().size() == 0) {
+          omMetadataManager.getPrefixTable().addCacheEntry(
+              new CacheKey<>(prefixPath),
+              new CacheValue<>(Optional.absent(), transactionLogIndex));
+        } else {
+          // update cache.
+          omMetadataManager.getPrefixTable().addCacheEntry(
+              new CacheKey<>(prefixPath),
+              new CacheValue<>(Optional.of(operationResult.getOmPrefixInfo()),
+                  transactionLogIndex));
+        }
+      }
+
+      result  = operationResult.isOperationsResult();
+      omClientResponse = onSuccess(omResponse,
+          operationResult.getOmPrefixInfo(), result);
 
     } catch (IOException ex) {
       exception = ex;
@@ -124,12 +140,12 @@ public abstract class OMPrefixAclRequest extends OMClientRequest {
                 transactionLogIndex));
       }
       if (lockAcquired) {
-        omMetadataManager.getLock().releaseLock(BUCKET_LOCK, volume, bucket);
+        omMetadataManager.getLock().releaseLock(PREFIX_LOCK,
+            getOzoneObj().getPath());
       }
     }
 
-
-    onComplete(operationResult, exception, ozoneManager.getMetrics());
+    onComplete(result, exception, ozoneManager.getMetrics());
 
     return omClientResponse;
   }
@@ -158,12 +174,12 @@ public abstract class OMPrefixAclRequest extends OMClientRequest {
   /**
    * Get the om client response on success case with lock.
    * @param omResponse
-   * @param omKeyInfo
+   * @param omPrefixInfo
    * @param operationResult
    * @return OMClientResponse
    */
   abstract OMClientResponse onSuccess(
-      OMResponse.Builder omResponse, OmKeyInfo omKeyInfo,
+      OMResponse.Builder omResponse, OmPrefixInfo omPrefixInfo,
       boolean operationResult);
 
   /**

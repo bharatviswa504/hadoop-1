@@ -468,14 +468,16 @@ public class PrefixManagerImpl implements PrefixManager {
     prefixInfo = upiBuilder.setAcls(aclsToBeSet).build();
 
     prefixTree.insert(ozoneObj.getPath(), prefixInfo);
-    metadataManager.getPrefixTable().put(ozoneObj.getPath(), prefixInfo);
+    if (!isRatisEnabled) {
+      metadataManager.getPrefixTable().put(ozoneObj.getPath(), prefixInfo);
+    }
     return new OMPrefixAclOpResult(prefixInfo, true);
   }
 
   /**
    * Result of the prefix acl operation.
    */
-  public class OMPrefixAclOpResult {
+  public static class OMPrefixAclOpResult {
     private OmPrefixInfo omPrefixInfo;
     private boolean operationsResult;
 
